@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Configuração da Página
 st.set_page_config(
     page_title="Dashboard Completo - Campeonato Brasileiro",
     page_icon="⚽",
@@ -10,7 +9,6 @@ st.set_page_config(
 )
 
 
-# 2. Carregamento e Tratamento dos Dados
 @st.cache_data
 def carregar_dados():
     df_full = pd.read_csv("campeonato-brasileiro-full.csv")
@@ -18,17 +16,13 @@ def carregar_dados():
     df_gols = pd.read_csv("campeonato-brasileiro-gols.csv")
     df_cartoes = pd.read_csv("campeonato-brasileiro-cartoes.csv")
 
-    # Limpeza de espaços em branco nos estádios
     df_full["arena"] = df_full["arena"].astype(str).str.strip()
 
-    # Datas e Temporada
     df_full["data_dt"] = pd.to_datetime(df_full["data"], format="%d/%m/%Y", errors="coerce")
     df_full["temporada"] = df_full["data_dt"].dt.year
 
-    # Ajuste da Temporada de 2020 (jogos ocorridos no início de 2021)
     df_full.loc[(df_full["data_dt"] >= "2021-01-01") & (df_full["data_dt"] <= "2021-02-28"), "temporada"] = 2020
 
-    # Relacionar temporada aos outros datasets via partida_id
     mapa_temporadas = df_full.set_index("ID")["temporada"].to_dict()
 
     df_stats["temporada"] = df_stats["partida_id"].map(mapa_temporadas)
@@ -41,8 +35,8 @@ def carregar_dados():
     df_stats = df_stats[df_stats["partida_id"].isin(partidas_analise)].copy()
     df_gols = df_gols[df_gols["partida_id"].isin(partidas_analise)].copy()
     df_cartoes = df_cartoes[df_cartoes["partida_id"].isin(partidas_analise)].copy()
+    df_cartoes["posicao"] = df_cartoes["posicao"].replace({"Zagueira": "Zagueiro"})
 
-    # Tratamento de valores nulos no tipo de golo
     df_gols["tipo_de_gol"] = df_gols["tipo_de_gol"].fillna("Gol Normal")
 
     return df_full, df_stats, df_gols, df_cartoes
@@ -50,14 +44,11 @@ def carregar_dados():
 
 df_full, df_stats, df_gols, df_cartoes = carregar_dados()
 
-# 3. Filtros na Barra Lateral (Sidebar)
 st.sidebar.header("🔍 Filtros Globais")
 
-# Filtro Temporada
 temporadas_disponiveis = sorted([int(t) for t in df_full["temporada"].dropna().unique()], reverse=True)
 opcao_temporada = st.sidebar.selectbox("Temporada", ["Todas"] + temporadas_disponiveis)
 
-# Filtrar por temporada
 if opcao_temporada != "Todas":
     f_full = df_full[df_full["temporada"] == opcao_temporada].copy()
     f_stats = df_stats[df_stats["temporada"] == opcao_temporada].copy()
@@ -66,7 +57,6 @@ if opcao_temporada != "Todas":
 else:
     f_full, f_stats, f_gols, f_cartoes = df_full.copy(), df_stats.copy(), df_gols.copy(), df_cartoes.copy()
 
-# Filtro Clube
 clubes_mandantes = set(f_full["mandante"].dropna())
 clubes_visitantes = set(f_full["visitante"].dropna())
 todos_clubes = sorted(list(clubes_mandantes.union(clubes_visitantes)))
@@ -78,10 +68,8 @@ if opcao_clube != "Todos":
     f_gols = f_gols[f_gols["clube"] == opcao_clube]
     f_cartoes = f_cartoes[f_cartoes["clube"] == opcao_clube]
 
-# 4. Título Principal
 st.title("⚽ Dashboard Analítico do Campeonato Brasileiro")
 
-# 5. Separadores de Conteúdo (Tabs)
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🏆 Visão Geral",
     "📊 Estatísticas de Equipes",
@@ -90,14 +78,12 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🏟️ Estádios & Técnicos"
 ])
 
-# --- TAB 1: VISÃO GERAL ---
 with tab1:
     st.subheader("Indicadores Chave")
     c1, c2, c3, c4 = st.columns(4)
 
     total_jogos = len(f_full)
 
-    # Correção do cálculo dos gols quando há filtro de clube
     if opcao_clube != "Todos":
         gols_mand = f_full[f_full["mandante"] == opcao_clube]["mandante_Placar"].sum()
         gols_vis = f_full[f_full["visitante"] == opcao_clube]["visitante_Placar"].sum()
@@ -140,25 +126,25 @@ with tab1:
 
     st.subheader("Lista de Partidas")
     st.dataframe(
-        f_full[["data", "rodata", "mandante", "mandante_Placar", "visitante_Placar", "visitante", "arena",
-                "vencedor"]].rename(
-            columns={"rodata": "Rodada", "mandante_Placar": "Placar M", "visitante_Placar": "Placar V"}
+        f_full.assign(
+            vencedor=lambda jogos: jogos["vencedor"].where(
+                jogos["mandante_Placar"] != jogos["visitante_Placar"], "Empate"
+            )
+        )[["temporada", "data", "rodata", "mandante", "mandante_Placar", "visitante_Placar", "visitante", "arena", "vencedor"]].rename(
+            columns={"temporada": "Temporada", "rodata": "Rodada", "mandante_Placar": "Placar M", "visitante_Placar": "Placar V", "vencedor": "Resultado"}
         ),
+        hide_index=True,
         width="stretch"
     )
 
-# --- TAB 2: ESTATÍSTICAS DE EQUIPAS ---
-# --- TAB 2: ESTATÍSTICAS DE EQUIPAS ---
 with tab2:
     st.subheader("Desempenho Coletivo")
 
-    # 1. Converte colunas para numérico garantindo que nulos virem 0
-    cols_stats = ["chutes", "chutes_no_alvo", "passes", "faltas", "escanteios", "impedimentos"]
+    cols_stats = ["chutes", "passes", "faltas", "escanteios", "impedimentos"]
     for col in cols_stats:
         if col in f_stats.columns:
             f_stats[col] = pd.to_numeric(f_stats[col], errors="coerce").fillna(0)
 
-    # 2. Filtra apenas os registros que possuem alguma estatística real (> 0)
     f_stats_validos = f_stats[f_stats[cols_stats].sum(axis=1) > 0]
 
     if not f_stats_validos.empty:
@@ -169,10 +155,10 @@ with tab2:
 
         col_s1, col_s2 = st.columns(2)
         with col_s1:
-            st.subheader("Média de Chutes ao Alvo por Equipe")
+            st.subheader("Média de Chutes por Equipe")
             fig_chutes = px.bar(
-                df_agrupado_stats.sort_values("chutes_no_alvo", ascending=False).head(10),
-                x="clube", y="chutes_no_alvo", color="clube", title="Top 10 - Chutes no Alvo / Jogo"
+                df_agrupado_stats.sort_values("chutes", ascending=False).head(10),
+                x="clube", y="chutes", color="clube", title="Top 10 - Chutes / Jogo"
             )
             st.plotly_chart(fig_chutes, width="stretch")
 
@@ -187,7 +173,6 @@ with tab2:
         st.warning(
             "⚠️ Não existem estatísticas detalhadas (chutes, faltas, etc.) registradas para o ano/clube selecionado no dataset.")
 
-# --- TAB 3: ARTILHARIA & GOLOS ---
 with tab3:
     st.subheader("Top Artilheiros")
     if not f_gols.empty:
@@ -220,32 +205,27 @@ with tab3:
             st.subheader("Minutos dos Gols")
             df_gols_temp = f_gols.copy()
 
-            # Limpeza do campo de minutos (tratando acréscimos)
             minutos_limpos = df_gols_temp["minuto"].astype(str).str.extract(r'(\d+)')[0]
             df_gols_temp["minuto_num"] = pd.to_numeric(minutos_limpos, errors="coerce")
             df_validos = df_gols_temp.dropna(subset=["minuto_num"])
 
             if not df_validos.empty:
-                # 1. Agrupamos por intervalo de tempo (bins de 5 em 5 minutos para maior precisão)
                 df_validos["intervalo"] = pd.cut(df_validos["minuto_num"], bins=range(0, 96, 5), right=False)
                 df_histograma = df_validos.groupby("intervalo", observed=False).size().reset_index(name="Quantidade")
 
-                # Formatamos a legenda do eixo X para ficar legível (ex: "40-45 min")
                 df_histograma["Intervalo_Texto"] = df_histograma["intervalo"].apply(
                     lambda x: f"{int(x.left)}-{int(x.right)} min")
 
-                # 2. Criamos o gráfico de barras com gradiente de cor baseado na quantidade de gols
                 fig_minutos = px.bar(
                     df_histograma,
                     x="Intervalo_Texto",
                     y="Quantidade",
                     color="Quantidade",
-                    color_continuous_scale="Viridis",  # Gradiente: do azul/roxo ao amarelo nos picos de gols
+                    color_continuous_scale="Viridis",
                     title="Frequência de Gols por Minuto de Jogo",
                     labels={"Intervalo_Texto": "Minuto do Jogo", "Quantidade": "Gols Marcados"}
                 )
 
-                # 3. Ajustes estéticos: bordas brancas e ocultar a barra de cor redundante
                 fig_minutos.update_traces(marker_line_color='white', marker_line_width=1)
                 fig_minutos.update_layout(coloraxis_showscale=False)
 
@@ -253,7 +233,21 @@ with tab3:
             else:
                 st.info("Sem dados de minutos registrados.")
 
-# --- TAB 4: DISCIPLINA & CARTÕES ---
+    st.markdown("---")
+    st.subheader("Distribuição de Gols por Partida e Valores Extremos")
+    jogos_gols = f_full.copy()
+    jogos_gols["Gols na partida"] = jogos_gols["mandante_Placar"] + jogos_gols["visitante_Placar"]
+    fig_box_gols = px.box(jogos_gols, y="Gols na partida", points="outliers", title="Distribuição de gols por partida")
+    st.plotly_chart(fig_box_gols, width="stretch")
+    st.subheader("Partidas com Mais Gols")
+    jogos_extremos = jogos_gols.sort_values("Gols na partida", ascending=False).head(10).copy()
+    jogos_extremos["Placar"] = jogos_extremos["mandante_Placar"].astype(str) + " × " + jogos_extremos["visitante_Placar"].astype(str)
+    st.dataframe(
+        jogos_extremos[["temporada", "data", "mandante", "Placar", "visitante", "Gols na partida"]].rename(
+            columns={"temporada": "Temporada", "data": "Data", "mandante": "Mandante", "visitante": "Visitante"}
+        ), hide_index=True, width="stretch"
+    )
+
 with tab4:
     st.subheader("Análise de Disciplina")
     if not f_cartoes.empty:
@@ -282,16 +276,26 @@ with tab4:
             st.plotly_chart(fig_pos, width="stretch")
 
         with col_tipo_c:
-            st.subheader("Distribuição Geral de Cartões")
-            dist_cartoes = f_cartoes["cartao"].value_counts().reset_index()
-            dist_cartoes.columns = ["Tipo", "Total"]
-            fig_dist_c = px.pie(dist_cartoes, names="Tipo", values="Total", color="Tipo",
-                                color_discrete_map={"Amarelo": "#f1c40f", "Vermelho": "#e74c3c"})
-            st.plotly_chart(fig_dist_c, width="stretch")
+            st.subheader("Média de Cartões Amarelos por Clube")
+            participacoes = pd.concat([f_full["mandante"], f_full["visitante"]]).value_counts()
+            amarelos_clube = f_cartoes.loc[f_cartoes["cartao"] == "Amarelo", "clube"].value_counts()
+            media_amarelos = (
+                amarelos_clube.reindex(participacoes.index, fill_value=0)
+                .div(participacoes)
+                .sort_values(ascending=False)
+                .head(10)
+                .rename_axis("Clube")
+                .reset_index(name="Amarelos por partida")
+            )
+            fig_media_amarelos = px.bar(
+                media_amarelos, x="Amarelos por partida", y="Clube", orientation="h",
+                title="Média de cartões amarelos por partida"
+            )
+            fig_media_amarelos.update_layout(yaxis=dict(autorange="reversed"))
+            st.plotly_chart(fig_media_amarelos, width="stretch")
     else:
         st.info("Sem dados de cartões para os filtros selecionados.")
 
-# --- TAB 5: ESTÁDIOS & TÉCNICOS ---
 with tab5:
     st.subheader("🏟️ Principais Estádios e Técnicos")
     col_e1, col_e2 = st.columns(2)
