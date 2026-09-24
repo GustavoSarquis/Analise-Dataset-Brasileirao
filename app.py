@@ -100,18 +100,28 @@ with tab1:
     media_gols = (total_gols / total_jogos) if total_jogos > 0 else 0
     total_cartoes = len(f_cartoes)
 
+    rotulo_gols = "Gols marcados pelo clube" if opcao_clube != "Todos" else "Total de Gols"
+    rotulo_media = "Gols do clube / jogo" if opcao_clube != "Todos" else "Média Gols / Jogo"
+    rotulo_cartoes = "Cartões do clube" if opcao_clube != "Todos" else "Total de Cartões"
+    cartoes_disponiveis = not f_cartoes.empty
+
     c1.metric("Total de Partidas", f"{total_jogos:,}")
-    c2.metric("Total de Gols", f"{total_gols:,}")
-    c3.metric("Média Gols / Jogo", f"{media_gols:.2f}")
-    c4.metric("Total de Cartões", f"{total_cartoes:,}")
+    c2.metric(rotulo_gols, f"{total_gols:,}")
+    c3.metric(rotulo_media, f"{media_gols:.2f}")
+    c4.metric(rotulo_cartoes, f"{total_cartoes:,}" if cartoes_disponiveis else "Sem registros")
 
     st.markdown("---")
 
     col_g1, col_g2 = st.columns(2)
     with col_g1:
-        st.subheader("Distribuição de Gols (Mandantes vs Visitantes)")
+        titulo_distribuicao = (
+            "Gols do clube (Em casa vs Fora de casa)"
+            if opcao_clube != "Todos"
+            else "Distribuição de Gols (Mandantes vs Visitantes)"
+        )
+        st.subheader(titulo_distribuicao)
         df_local_gols = pd.DataFrame({
-            "Mando": ["Mandante", "Visitante"],
+            "Mando": ["Em casa", "Fora de casa"] if opcao_clube != "Todos" else ["Mandante", "Visitante"],
             "Gols": [gols_mand, gols_vis]
         })
         fig_mando = px.pie(df_local_gols, names="Mando", values="Gols", hole=0.4,
