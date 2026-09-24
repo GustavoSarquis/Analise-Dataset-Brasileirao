@@ -35,6 +35,13 @@ def carregar_dados():
     df_gols["temporada"] = df_gols["partida_id"].map(mapa_temporadas)
     df_cartoes["temporada"] = df_cartoes["partida_id"].map(mapa_temporadas)
 
+    temporadas_analise = set(range(2015, 2024)) | {2025}
+    df_full = df_full[df_full["temporada"].isin(temporadas_analise)].copy()
+    partidas_analise = set(df_full["ID"])
+    df_stats = df_stats[df_stats["partida_id"].isin(partidas_analise)].copy()
+    df_gols = df_gols[df_gols["partida_id"].isin(partidas_analise)].copy()
+    df_cartoes = df_cartoes[df_cartoes["partida_id"].isin(partidas_analise)].copy()
+
     # Tratamento de valores nulos no tipo de golo
     df_gols["tipo_de_gol"] = df_gols["tipo_de_gol"].fillna("Gol Normal")
 
@@ -118,7 +125,7 @@ with tab1:
         })
         fig_mando = px.pie(df_local_gols, names="Mando", values="Gols", hole=0.4,
                            color_discrete_sequence=["#1f77b4", "#ff7f0e"])
-        st.plotly_chart(fig_mando, use_container_width=True)
+        st.plotly_chart(fig_mando, width="stretch")
 
     with col_g2:
         st.subheader("Resultados das Partidas")
@@ -129,7 +136,7 @@ with tab1:
 
         fig_res = px.histogram(df_res, x="Resultado", color="Resultado",
                                color_discrete_sequence=px.colors.qualitative.Set2)
-        st.plotly_chart(fig_res, use_container_width=True)
+        st.plotly_chart(fig_res, width="stretch")
 
     st.subheader("Lista de Partidas")
     st.dataframe(
@@ -137,7 +144,7 @@ with tab1:
                 "vencedor"]].rename(
             columns={"rodata": "Rodada", "mandante_Placar": "Placar M", "visitante_Placar": "Placar V"}
         ),
-        use_container_width=True
+        width="stretch"
     )
 
 # --- TAB 2: ESTATÍSTICAS DE EQUIPAS ---
@@ -158,7 +165,7 @@ with tab2:
         df_agrupado_stats = f_stats_validos.groupby("clube")[cols_stats].mean().reset_index()
 
         st.write("Média por jogo de cada equipe no período selecionado:")
-        st.dataframe(df_agrupado_stats.round(2), use_container_width=True)
+        st.dataframe(df_agrupado_stats.round(2), width="stretch")
 
         col_s1, col_s2 = st.columns(2)
         with col_s1:
@@ -167,7 +174,7 @@ with tab2:
                 df_agrupado_stats.sort_values("chutes_no_alvo", ascending=False).head(10),
                 x="clube", y="chutes_no_alvo", color="clube", title="Top 10 - Chutes no Alvo / Jogo"
             )
-            st.plotly_chart(fig_chutes, use_container_width=True)
+            st.plotly_chart(fig_chutes, width="stretch")
 
         with col_s2:
             st.subheader("Média de Faltas Cometidas por Equipe")
@@ -175,7 +182,7 @@ with tab2:
                 df_agrupado_stats.sort_values("faltas", ascending=False).head(10),
                 x="clube", y="faltas", color="clube", title="Top 10 - Mais Faltosas / Jogo"
             )
-            st.plotly_chart(fig_faltas, use_container_width=True)
+            st.plotly_chart(fig_faltas, width="stretch")
     else:
         st.warning(
             "⚠️ Não existem estatísticas detalhadas (chutes, faltas, etc.) registradas para o ano/clube selecionado no dataset.")
@@ -189,7 +196,7 @@ with tab3:
 
         col_a1, col_a2 = st.columns([1, 2])
         with col_a1:
-            st.dataframe(artilharia.head(15), use_container_width=True)
+            st.dataframe(artilharia.head(15), width="stretch")
 
         with col_a2:
             fig_artilharia = px.bar(
@@ -197,7 +204,7 @@ with tab3:
                 title="Top 10 Marcadores", color="Gols", color_continuous_scale="Viridis"
             )
             fig_artilharia.update_layout(yaxis=dict(autorange="reversed"))
-            st.plotly_chart(fig_artilharia, use_container_width=True)
+            st.plotly_chart(fig_artilharia, width="stretch")
 
         st.markdown("---")
         col_g_tipo, col_g_min = st.columns(2)
@@ -207,7 +214,7 @@ with tab3:
             tipos_gol = f_gols["tipo_de_gol"].value_counts().reset_index()
             tipos_gol.columns = ["Tipo", "Quantidade"]
             fig_tipo_gol = px.pie(tipos_gol, names="Tipo", values="Quantidade", hole=0.3)
-            st.plotly_chart(fig_tipo_gol, use_container_width=True)
+            st.plotly_chart(fig_tipo_gol, width="stretch")
 
         with col_g_min:
             st.subheader("Minutos dos Gols")
@@ -242,7 +249,7 @@ with tab3:
                 fig_minutos.update_traces(marker_line_color='white', marker_line_width=1)
                 fig_minutos.update_layout(coloraxis_showscale=False)
 
-                st.plotly_chart(fig_minutos, use_container_width=True)
+                st.plotly_chart(fig_minutos, width="stretch")
             else:
                 st.info("Sem dados de minutos registrados.")
 
@@ -256,13 +263,13 @@ with tab4:
             st.subheader("Cartões Amarelos por Jogador")
             amarelos = f_cartoes[f_cartoes["cartao"] == "Amarelo"]["atleta"].value_counts().reset_index()
             amarelos.columns = ["Jogador", "Cartões Amarelos"]
-            st.dataframe(amarelos.head(10), use_container_width=True)
+            st.dataframe(amarelos.head(10), width="stretch")
 
         with col_c2:
             st.subheader("Cartões Vermelhos por Jogador")
             vermelhos = f_cartoes[f_cartoes["cartao"] == "Vermelho"]["atleta"].value_counts().reset_index()
             vermelhos.columns = ["Jogador", "Cartões Vermelhos"]
-            st.dataframe(vermelhos.head(10), use_container_width=True)
+            st.dataframe(vermelhos.head(10), width="stretch")
 
         st.markdown("---")
         col_pos, col_tipo_c = st.columns(2)
@@ -272,7 +279,7 @@ with tab4:
             cartoes_pos = f_cartoes["posicao"].value_counts().reset_index()
             cartoes_pos.columns = ["Posição", "Total Cartões"]
             fig_pos = px.bar(cartoes_pos.head(8), x="Posição", y="Total Cartões", color="Posição")
-            st.plotly_chart(fig_pos, use_container_width=True)
+            st.plotly_chart(fig_pos, width="stretch")
 
         with col_tipo_c:
             st.subheader("Distribuição Geral de Cartões")
@@ -280,7 +287,7 @@ with tab4:
             dist_cartoes.columns = ["Tipo", "Total"]
             fig_dist_c = px.pie(dist_cartoes, names="Tipo", values="Total", color="Tipo",
                                 color_discrete_map={"Amarelo": "#f1c40f", "Vermelho": "#e74c3c"})
-            st.plotly_chart(fig_dist_c, use_container_width=True)
+            st.plotly_chart(fig_dist_c, width="stretch")
     else:
         st.info("Sem dados de cartões para os filtros selecionados.")
 
@@ -296,7 +303,7 @@ with tab5:
         fig_estadios = px.bar(estadios, x="Jogos", y="Estádio / Arena", orientation="h", color="Jogos",
                               color_continuous_scale="Blues")
         fig_estadios.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig_estadios, use_container_width=True)
+        st.plotly_chart(fig_estadios, width="stretch")
 
     with col_e2:
         st.subheader("Técnicos com Mais Jogos")
@@ -306,4 +313,4 @@ with tab5:
         fig_tecnicos = px.bar(tecnicos, x="Jogos", y="Técnico", orientation="h", color="Jogos",
                               color_continuous_scale="Greens")
         fig_tecnicos.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig_tecnicos, use_container_width=True)
+        st.plotly_chart(fig_tecnicos, width="stretch")
