@@ -68,7 +68,12 @@ if opcao_clube != "Todos":
     f_gols = f_gols[f_gols["clube"] == opcao_clube]
     f_cartoes = f_cartoes[f_cartoes["clube"] == opcao_clube]
 
+partidas_filtradas = set(f_full["ID"])
+f_stats_partidas = df_stats[df_stats["partida_id"].isin(partidas_filtradas)].copy()
+f_cartoes_partidas = df_cartoes[df_cartoes["partida_id"].isin(partidas_filtradas)].copy()
+
 st.title("⚽ Dashboard Analítico do Campeonato Brasileiro")
+st.caption("Temporadas analisadas: 2015–2023 e 2025. A temporada de 2024 não integra esta análise.")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "🏆 Visão Geral",
@@ -124,6 +129,72 @@ with tab1:
                                color_discrete_sequence=px.colors.qualitative.Set2)
         st.plotly_chart(fig_res, width="stretch")
 
+    st.markdown("---")
+    st.subheader("Evolução por Temporada")
+    serie_temporadas = df_full.copy() if opcao_temporada == "Todas" else f_full.copy()
+    if opcao_clube != "Todos":
+        serie_temporadas = serie_temporadas[
+            (serie_temporadas["mandante"] == opcao_clube) |
+            (serie_temporadas["visitante"] == opcao_clube)
+        ]
+    serie_temporadas["gols_jogo"] = (
+        serie_temporadas["mandante_Placar"] + serie_temporadas["visitante_Placar"]
+    )
+    evolucao_gols = (
+        serie_temporadas.groupby("temporada", as_index=False)
+        .agg(media_gols=("gols_jogo", "mean"), partidas=("ID", "count"))
+        .sort_values("temporada")
+    )
+    grafico_evolucao = px.line(
+        evolucao_gols, x="temporada", y="media_gols", markers=True,
+        labels={"temporada": "Temporada", "media_gols": "Média de gols por partida", "partidas": "Partidas"},
+        hover_data={"partidas": True, "media_gols": ":.2f"}
+    )
+    grafico_evolucao.update_xaxes(type="category")
+    st.plotly_chart(grafico_evolucao, width="stretch")
+
+    st.markdown("---")
+    st.subheader("Vitórias por Clube: Casa e Fora")
+    mando_selecionado = st.radio(
+        "Local da partida", ["Em casa", "Fora de casa"], horizontal=True,
+        key="mando_ranking_vitorias"
+    )
+    coluna_clube = "mandante" if mando_selecionado == "Em casa" else "visitante"
+    partidas_mando = f_full.copy()
+    partidas_mando["vitoria"] = (
+        partidas_mando["mandante_Placar"] > partidas_mando["visitante_Placar"]
+        if mando_selecionado == "Em casa"
+        else partidas_mando["visitante_Placar"] > partidas_mando["mandante_Placar"]
+    )
+    ranking_mando = (
+        partidas_mando.groupby(coluna_clube, as_index=False)
+        .agg(Jogos=("ID", "count"), Vitorias=("vitoria", "sum"))
+        .rename(columns={coluna_clube: "Clube"})
+    )
+    if not ranking_mando.empty:
+        ranking_mando["Percentual"] = 100 * ranking_mando["Vitorias"] / ranking_mando["Jogos"]
+        ranking_mando = ranking_mando.sort_values(
+            ["Percentual", "Jogos", "Clube"], ascending=[False, False, True]
+        ).head(10)
+        grafico_vitorias = px.bar(
+            ranking_mando, x="Percentual", y="Clube", orientation="h",
+            color="Clube", color_discrete_sequence=px.colors.qualitative.Bold,
+            text="Percentual", custom_data=["Jogos", "Vitorias"],
+            labels={"Percentual": "Vitórias (%)", "Clube": "Clube"}
+        )
+        grafico_vitorias.update_traces(
+            texttemplate="%{x:.1f}%", textposition="outside", cliponaxis=False,
+            hovertemplate="%{y}<br>Vitórias: %{customdata[1]}<br>Jogos: %{customdata[0]}<br>Vitórias: %{x:.2f}%<extra></extra>"
+        )
+        grafico_vitorias.update_layout(
+            showlegend=False,
+            yaxis=dict(title=None, categoryorder="array", categoryarray=ranking_mando["Clube"].tolist()[::-1]),
+            xaxis=dict(range=[0, max(100, ranking_mando["Percentual"].max() * 1.14)])
+        )
+        st.plotly_chart(grafico_vitorias, width="stretch")
+    else:
+        st.info("Não há partidas para o local e os filtros selecionados.")
+
     st.subheader("Lista de Partidas")
     st.dataframe(
         f_full.assign(
@@ -173,8 +244,56 @@ with tab2:
         st.warning(
             "⚠️ Não existem estatísticas detalhadas (chutes, faltas, etc.) registradas para o ano/clube selecionado no dataset.")
 
+    st.markdown("---")
+    st.subheader("Posse de Bola do Mandante e Resultado da Partida")
+    partidas_posse = f_full[["ID", "mandante", "visitante", "mandante_Placar", "visitante_Placar"]].copy()
+    posse_mandantes = f_stats_partidas[["partida_id", "clube", "posse_de_bola"]].copy()
+    posse_mandantes = posse_mandantes.merge(
+        partidas_posse, left_on=["partida_id", "clube"], right_on=["ID", "mandante"], how="inner"
+    )
+    posse_mandantes["posse_mandante"] = pd.to_numeric(
+        posse_mandantes["posse_de_bola"].astype("string").str.replace("%", "", regex=False).str.strip(),
+        errors="coerce"
+    )
+    posse_mandantes = posse_mandantes.dropna(subset=["posse_mandante"])
+    if not posse_mandantes.empty:
+        posse_mandantes["faixa_posse"] = pd.cut(
+            posse_mandantes["posse_mandante"],
+            bins=[-0.01, 40, 50, 60, 100.01],
+            labels=["Menos de 40%", "40% a menos de 50%", "50% a menos de 60%", "60% ou mais"],
+            right=False
+        )
+        posse_mandantes["resultado"] = "Empate"
+        posse_mandantes.loc[
+            posse_mandantes["mandante_Placar"] > posse_mandantes["visitante_Placar"], "resultado"
+        ] = "Vitória mandante"
+        posse_mandantes.loc[
+            posse_mandantes["mandante_Placar"] < posse_mandantes["visitante_Placar"], "resultado"
+        ] = "Vitória visitante"
+        contagem_posse = (
+            posse_mandantes.groupby(["faixa_posse", "resultado"], observed=False)
+            .size().reset_index(name="jogos")
+        )
+        contagem_posse["percentual"] = (
+            100 * contagem_posse["jogos"] /
+            contagem_posse.groupby("faixa_posse", observed=False)["jogos"].transform("sum")
+        )
+        grafico_posse = px.bar(
+            contagem_posse, x="faixa_posse", y="percentual", color="resultado",
+            barmode="stack", category_orders={"resultado": ["Vitória mandante", "Empate", "Vitória visitante"]},
+            labels={"faixa_posse": "Posse de bola do mandante", "percentual": "Distribuição dos resultados (%)", "resultado": "Resultado", "jogos": "Partidas"},
+            hover_data={"jogos": True, "percentual": ":.2f"}
+        )
+        grafico_posse.update_layout(yaxis_range=[0, 100])
+        st.caption(f"Partidas com posse registrada: {len(posse_mandantes):,} de {len(f_full):,} partidas selecionadas.")
+        st.plotly_chart(grafico_posse, width="stretch")
+    else:
+        st.info("Não há partidas com posse de bola registrada para os filtros selecionados.")
+
 with tab3:
     st.subheader("Top Artilheiros")
+    if opcao_clube != "Todos":
+        st.caption("Artilharia e gols por minuto: gols atribuídos ao clube selecionado.")
     if not f_gols.empty:
         artilharia = f_gols["atleta"].value_counts().reset_index()
         artilharia.columns = ["Jogador", "Gols"]
@@ -192,8 +311,45 @@ with tab3:
             st.plotly_chart(fig_artilharia, width="stretch")
 
         st.markdown("---")
-        col_g_tipo, col_g_min = st.columns(2)
+        st.subheader("Gols por Período do Jogo")
+        gols_minutos = f_gols.copy()
+        gols_minutos["minuto_base"] = pd.to_numeric(
+            gols_minutos["minuto"].astype("string").str.extract(r"^(\d+)(?:\+\d+)?$")[0],
+            errors="coerce"
+        )
+        gols_minutos = gols_minutos[gols_minutos["minuto_base"].between(0, 90)].copy()
+        if not gols_minutos.empty:
+            faixas = ["0–15", "16–30", "31–45+", "46–60", "61–75", "76–90+"]
+            gols_minutos["Faixa"] = pd.cut(
+                gols_minutos["minuto_base"],
+                bins=[-1, 15, 30, 45, 60, 75, 90],
+                labels=faixas
+            )
+            distribuicao_minutos = (
+                gols_minutos["Faixa"].value_counts(sort=False)
+                .rename_axis("Faixa").reset_index(name="Gols")
+            )
+            distribuicao_minutos["Percentual"] = distribuicao_minutos["Gols"] / len(gols_minutos) * 100
+            fig_minutos = px.bar(
+                distribuicao_minutos, x="Faixa", y="Percentual", color="Faixa",
+                text="Percentual", category_orders={"Faixa": faixas},
+                color_discrete_sequence=px.colors.qualitative.Plotly,
+                custom_data=["Gols"],
+                labels={"Percentual": "Gols (%)", "Faixa": "Período do jogo"}
+            )
+            fig_minutos.update_traces(
+                texttemplate="%{y:.1f}%", textposition="outside",
+                hovertemplate="%{x}<br>Gols: %{customdata[0]}<br>Participação: %{y:.2f}%<extra></extra>"
+            )
+            fig_minutos.update_layout(
+                showlegend=False,
+                yaxis_range=[0, max(distribuicao_minutos["Percentual"].max() * 1.2, 1)]
+            )
+            st.plotly_chart(fig_minutos, width="stretch")
+        else:
+            st.info("Não há gols com minuto válido para os filtros selecionados.")
 
+        col_g_tipo, col_g_tempo = st.columns(2)
         with col_g_tipo:
             st.subheader("Tipos de Gols")
             tipos_gol = f_gols["tipo_de_gol"].value_counts().reset_index()
@@ -201,37 +357,31 @@ with tab3:
             fig_tipo_gol = px.pie(tipos_gol, names="Tipo", values="Quantidade", hole=0.3)
             st.plotly_chart(fig_tipo_gol, width="stretch")
 
-        with col_g_min:
-            st.subheader("Minutos dos Gols")
-            df_gols_temp = f_gols.copy()
-
-            minutos_limpos = df_gols_temp["minuto"].astype(str).str.extract(r'(\d+)')[0]
-            df_gols_temp["minuto_num"] = pd.to_numeric(minutos_limpos, errors="coerce")
-            df_validos = df_gols_temp.dropna(subset=["minuto_num"])
-
-            if not df_validos.empty:
-                df_validos["intervalo"] = pd.cut(df_validos["minuto_num"], bins=range(0, 96, 5), right=False)
-                df_histograma = df_validos.groupby("intervalo", observed=False).size().reset_index(name="Quantidade")
-
-                df_histograma["Intervalo_Texto"] = df_histograma["intervalo"].apply(
-                    lambda x: f"{int(x.left)}-{int(x.right)} min")
-
-                fig_minutos = px.bar(
-                    df_histograma,
-                    x="Intervalo_Texto",
-                    y="Quantidade",
-                    color="Quantidade",
-                    color_continuous_scale="Viridis",
-                    title="Frequência de Gols por Minuto de Jogo",
-                    labels={"Intervalo_Texto": "Minuto do Jogo", "Quantidade": "Gols Marcados"}
+        with col_g_tempo:
+            st.subheader("Gols por Tempo de Jogo")
+            if not gols_minutos.empty:
+                tempos = (
+                    gols_minutos["minuto_base"].le(45)
+                    .map({True: "1º tempo", False: "2º tempo"})
+                    .value_counts()
+                    .reindex(["1º tempo", "2º tempo"], fill_value=0)
+                    .rename_axis("Tempo").reset_index(name="Gols")
                 )
-
-                fig_minutos.update_traces(marker_line_color='white', marker_line_width=1)
-                fig_minutos.update_layout(coloraxis_showscale=False)
-
-                st.plotly_chart(fig_minutos, width="stretch")
+                tempos["Percentual"] = tempos["Gols"] / len(gols_minutos) * 100
+                fig_tempos = px.bar(
+                    tempos, x="Tempo", y="Percentual", color="Tempo",
+                    text="Percentual", custom_data=["Gols"],
+                    color_discrete_sequence=px.colors.qualitative.Plotly,
+                    labels={"Percentual": "Gols (%)"}
+                )
+                fig_tempos.update_traces(
+                    texttemplate="%{y:.1f}%", textposition="outside",
+                    hovertemplate="%{x}<br>Gols: %{customdata[0]}<br>Participação: %{y:.2f}%<extra></extra>"
+                )
+                fig_tempos.update_layout(showlegend=False, yaxis_range=[0, 100])
+                st.plotly_chart(fig_tempos, width="stretch")
             else:
-                st.info("Sem dados de minutos registrados.")
+                st.info("Não há gols com minuto válido para os filtros selecionados.")
 
     st.markdown("---")
     st.subheader("Distribuição de Gols por Partida e Valores Extremos")
@@ -288,13 +438,80 @@ with tab4:
                 .reset_index(name="Amarelos por partida")
             )
             fig_media_amarelos = px.bar(
-                media_amarelos, x="Amarelos por partida", y="Clube", orientation="h",
-                title="Média de cartões amarelos por partida"
+                media_amarelos,
+                x="Amarelos por partida",
+                y="Clube",
+                orientation="h",
+                color="Clube",
+                color_discrete_sequence=px.colors.qualitative.Bold,
+                text="Amarelos por partida",
             )
-            fig_media_amarelos.update_layout(yaxis=dict(autorange="reversed"))
+            fig_media_amarelos.update_traces(texttemplate="%{x:.2f}", textposition="outside", cliponaxis=False)
+            fig_media_amarelos.update_layout(
+                yaxis=dict(title=None, categoryorder="array", categoryarray=media_amarelos["Clube"].tolist()[::-1]),
+                xaxis=dict(range=[0, max(media_amarelos["Amarelos por partida"].max() * 1.16, 1)]),
+                showlegend=False,
+            )
             st.plotly_chart(fig_media_amarelos, width="stretch")
     else:
         st.info("Sem dados de cartões para os filtros selecionados.")
+
+    st.markdown("---")
+    st.subheader("Expulsões nas Partidas Selecionadas e Resultados")
+    partidas_cartoes = f_full[["ID", "mandante", "visitante", "mandante_Placar", "visitante_Placar"]].copy()
+    cartoes_vermelhos = f_cartoes_partidas[f_cartoes_partidas["cartao"] == "Vermelho"].copy()
+    contagem_vermelhos = (
+        cartoes_vermelhos.groupby(["partida_id", "clube"]).size().rename("vermelhos").reset_index()
+    )
+    vermelhos_mandante = contagem_vermelhos.merge(
+        partidas_cartoes[["ID", "mandante"]],
+        left_on=["partida_id", "clube"], right_on=["ID", "mandante"], how="inner"
+    ).groupby("ID")["vermelhos"].sum()
+    vermelhos_visitante = contagem_vermelhos.merge(
+        partidas_cartoes[["ID", "visitante"]],
+        left_on=["partida_id", "clube"], right_on=["ID", "visitante"], how="inner"
+    ).groupby("ID")["vermelhos"].sum()
+    partidas_cartoes["vermelhos_mandante"] = partidas_cartoes["ID"].map(vermelhos_mandante).fillna(0)
+    partidas_cartoes["vermelhos_visitante"] = partidas_cartoes["ID"].map(vermelhos_visitante).fillna(0)
+    partidas_cartoes["situacao"] = "Sem expulsões"
+    partidas_cartoes.loc[
+        (partidas_cartoes["vermelhos_mandante"] > 0) & (partidas_cartoes["vermelhos_visitante"] == 0), "situacao"
+    ] = "Só mandante expulso"
+    partidas_cartoes.loc[
+        (partidas_cartoes["vermelhos_mandante"] == 0) & (partidas_cartoes["vermelhos_visitante"] > 0), "situacao"
+    ] = "Só visitante expulso"
+    partidas_cartoes.loc[
+        (partidas_cartoes["vermelhos_mandante"] > 0) & (partidas_cartoes["vermelhos_visitante"] > 0), "situacao"
+    ] = "Ambos com expulsões"
+    partidas_cartoes["resultado"] = "Empate"
+    partidas_cartoes.loc[
+        partidas_cartoes["mandante_Placar"] > partidas_cartoes["visitante_Placar"], "resultado"
+    ] = "Vitória mandante"
+    partidas_cartoes.loc[
+        partidas_cartoes["mandante_Placar"] < partidas_cartoes["visitante_Placar"], "resultado"
+    ] = "Vitória visitante"
+    frequencia_vermelhos = (
+        partidas_cartoes.groupby(["situacao", "resultado"]).size().reset_index(name="jogos")
+    )
+    frequencia_vermelhos["percentual"] = (
+        100 * frequencia_vermelhos["jogos"] / frequencia_vermelhos.groupby("situacao")["jogos"].transform("sum")
+    )
+    totais_situacao = partidas_cartoes["situacao"].value_counts().to_dict()
+    frequencia_vermelhos["situação e amostra"] = frequencia_vermelhos["situacao"].map(
+        lambda situacao: f"{situacao} (n={totais_situacao[situacao]})"
+    )
+    grafico_vermelhos = px.bar(
+        frequencia_vermelhos, x="situação e amostra", y="percentual", color="resultado", barmode="stack",
+        category_orders={"situação e amostra": [
+            f"{situacao} (n={totais_situacao[situacao]})" for situacao in
+            ["Sem expulsões", "Só mandante expulso", "Só visitante expulso", "Ambos com expulsões"]
+            if situacao in totais_situacao
+        ], "resultado": ["Vitória mandante", "Empate", "Vitória visitante"]},
+        labels={"situação e amostra": "Situação dos cartões vermelhos", "percentual": "Distribuição dos resultados (%)", "resultado": "Resultado", "jogos": "Partidas"},
+        hover_data={"jogos": True, "percentual": ":.2f"}
+    )
+    grafico_vermelhos.update_layout(yaxis_range=[0, 100])
+    st.plotly_chart(grafico_vermelhos, width="stretch")
 
 with tab5:
     st.subheader("🏟️ Principais Estádios e Técnicos")
