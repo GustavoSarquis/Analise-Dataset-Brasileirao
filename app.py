@@ -8,6 +8,8 @@ st.set_page_config(
     layout="wide"
 )
 
+TEMPORADAS_ANALISADAS = set(range(2015, 2024)) | {2025}
+COLUNAS_ESTATISTICAS = ["chutes", "passes", "faltas", "escanteios", "impedimentos"]
 
 @st.cache_data
 def carregar_dados():
@@ -29,8 +31,7 @@ def carregar_dados():
     df_gols["temporada"] = df_gols["partida_id"].map(mapa_temporadas)
     df_cartoes["temporada"] = df_cartoes["partida_id"].map(mapa_temporadas)
 
-    temporadas_analise = set(range(2015, 2024)) | {2025}
-    df_full = df_full[df_full["temporada"].isin(temporadas_analise)].copy()
+    df_full = df_full[df_full["temporada"].isin(TEMPORADAS_ANALISADAS)].copy()
     partidas_analise = set(df_full["ID"])
     df_stats = df_stats[df_stats["partida_id"].isin(partidas_analise)].copy()
     df_gols = df_gols[df_gols["partida_id"].isin(partidas_analise)].copy()
@@ -41,32 +42,57 @@ def carregar_dados():
 
     return df_full, df_stats, df_gols, df_cartoes
 
-
 df_full, df_stats, df_gols, df_cartoes = carregar_dados()
+
+def filtrar_por_temporada(df_full, df_stats, df_gols, df_cartoes, temporada):
+    if temporada == "Todas":
+        return df_full.copy(), df_stats.copy(), df_gols.copy(), df_cartoes.copy()
+
+    return (
+        df_full[df_full["temporada"] == temporada].copy(),
+        df_stats[df_stats["temporada"] == temporada].copy(),
+        df_gols[df_gols["temporada"] == temporada].copy(),
+        df_cartoes[df_cartoes["temporada"] == temporada].copy()
+    )
+
+def filtrar_por_clube(df_full, df_stats, df_gols, df_cartoes, clube):
+    if clube == "Todos":
+        return df_full, df_stats, df_gols, df_cartoes
+
+    df_full = df_full[(df_full["mandante"] == clube) | (df_full["visitante"] == clube)].copy()
+    df_stats = df_stats[df_stats["clube"] == clube].copy()
+    df_gols = df_gols[df_gols["clube"] == clube].copy()
+    df_cartoes = df_cartoes[df_cartoes["clube"] == clube].copy()
+
+    return df_full, df_stats, df_gols, df_cartoes
 
 st.sidebar.header("🔍 Filtros Globais")
 
-temporadas_disponiveis = sorted([int(t) for t in df_full["temporada"].dropna().unique()], reverse=True)
+temporadas_disponiveis = sorted(
+    [int(temporada) for temporada in df_full["temporada"].dropna().unique()],
+    reverse=True
+)
+
 opcao_temporada = st.sidebar.selectbox("Temporada", ["Todas"] + temporadas_disponiveis)
 
-if opcao_temporada != "Todas":
-    f_full = df_full[df_full["temporada"] == opcao_temporada].copy()
-    f_stats = df_stats[df_stats["temporada"] == opcao_temporada].copy()
-    f_gols = df_gols[df_gols["temporada"] == opcao_temporada].copy()
-    f_cartoes = df_cartoes[df_cartoes["temporada"] == opcao_temporada].copy()
-else:
-    f_full, f_stats, f_gols, f_cartoes = df_full.copy(), df_stats.copy(), df_gols.copy(), df_cartoes.copy()
+df_full_filtrado, df_stats_filtrado, df_gols_filtrado, df_cartoes_filtrado = (
+    filtrar_por_temporada(df_full, df_stats, df_gols, df_cartoes, opcao_temporada)
+)
 
-clubes_mandantes = set(f_full["mandante"].dropna())
-clubes_visitantes = set(f_full["visitante"].dropna())
-todos_clubes = sorted(list(clubes_mandantes.union(clubes_visitantes)))
+clubes_mandantes = set(df_full_filtrado["mandante"].dropna())
+clubes_visitantes = set(df_full_filtrado["visitante"].dropna())
+todos_clubes = sorted(clubes_mandantes.union(clubes_visitantes))
+
+st.sidebar.write("")
+st.sidebar.write("")
+st.sidebar.write("")
+st.sidebar.write("")
+
 opcao_clube = st.sidebar.selectbox("Clube", ["Todos"] + todos_clubes)
 
-if opcao_clube != "Todos":
-    f_full = f_full[(f_full["mandante"] == opcao_clube) | (f_full["visitante"] == opcao_clube)]
-    f_stats = f_stats[f_stats["clube"] == opcao_clube]
-    f_gols = f_gols[f_gols["clube"] == opcao_clube]
-    f_cartoes = f_cartoes[f_cartoes["clube"] == opcao_clube]
+f_full, f_stats, f_gols, f_cartoes = filtrar_por_clube(
+    df_full_filtrado, df_stats_filtrado, df_gols_filtrado, df_cartoes_filtrado, opcao_clube
+)
 
 partidas_filtradas = set(f_full["ID"])
 f_stats_partidas = df_stats[df_stats["partida_id"].isin(partidas_filtradas)].copy()
@@ -75,12 +101,11 @@ f_cartoes_partidas = df_cartoes[df_cartoes["partida_id"].isin(partidas_filtradas
 st.title("⚽ Dashboard Analítico do Campeonato Brasileiro")
 st.caption("Temporadas analisadas: 2015–2023 e 2025. A temporada de 2024 não integra esta análise.")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "🏆 Visão Geral",
     "📊 Estatísticas de Equipes",
     "⚽ Artilharia & Gols",
     "🟨 Disciplina & Cartões",
-    "🏟️ Estádios & Técnicos"
 ])
 
 with tab1:
@@ -111,7 +136,6 @@ with tab1:
     c4.metric(rotulo_cartoes, f"{total_cartoes:,}" if cartoes_disponiveis else "Sem registros")
 
     st.markdown("---")
-
     col_g1, col_g2 = st.columns(2)
     with col_g1:
         titulo_distribuicao = (
@@ -130,12 +154,12 @@ with tab1:
 
     with col_g2:
         st.subheader("Resultados das Partidas")
-        df_res = f_full.copy()
-        df_res["Resultado"] = "Empate"
-        df_res.loc[df_res["vencedor"] == df_res["mandante"], "Resultado"] = "Vitória Mandante"
-        df_res.loc[df_res["vencedor"] == df_res["visitante"], "Resultado"] = "Vitória Visitante"
+        df_resultados = f_full.copy()
+        df_resultados["Resultado"] = "Empate"
+        df_resultados.loc[df_resultados["vencedor"] == df_resultados["mandante"], "Resultado"] = "Vitória Mandante"
+        df_resultados.loc[df_resultados["vencedor"] == df_resultados["visitante"], "Resultado"] = "Vitória Visitante"
 
-        fig_res = px.histogram(df_res, x="Resultado", color="Resultado",
+        fig_res = px.histogram(df_resultados, x="Resultado", color="Resultado",
                                color_discrete_sequence=px.colors.qualitative.Set2)
         st.plotly_chart(fig_res, width="stretch")
 
@@ -162,7 +186,6 @@ with tab1:
     )
     grafico_evolucao.update_xaxes(type="category")
     st.plotly_chart(grafico_evolucao, width="stretch")
-
     st.markdown("---")
     st.subheader("Vitórias por Clube: Casa e Fora")
     mando_selecionado = st.radio(
@@ -220,19 +243,25 @@ with tab1:
 
 with tab2:
     st.subheader("Desempenho Coletivo")
-
-    cols_stats = ["chutes", "passes", "faltas", "escanteios", "impedimentos"]
-    for col in cols_stats:
-        if col in f_stats.columns:
-            f_stats[col] = pd.to_numeric(f_stats[col], errors="coerce").fillna(0)
-
-    f_stats_validos = f_stats[f_stats[cols_stats].sum(axis=1) > 0]
+    f_stats[COLUNAS_ESTATISTICAS] = (f_stats[COLUNAS_ESTATISTICAS].apply(pd.to_numeric, errors="coerce").fillna(0))
+    f_stats_validos = f_stats[f_stats[COLUNAS_ESTATISTICAS].sum(axis=1) > 0]
 
     if not f_stats_validos.empty:
-        df_agrupado_stats = f_stats_validos.groupby("clube")[cols_stats].mean().reset_index()
+        df_agrupado_stats = f_stats_validos.groupby("clube")[COLUNAS_ESTATISTICAS].mean().reset_index()
 
         st.write("Média por jogo de cada equipe no período selecionado:")
         st.dataframe(df_agrupado_stats.round(2), width="stretch")
+        st.markdown("---")
+        st.subheader("Estatísticas Descritivas")
+
+        dados_descritivos = f_stats_validos[COLUNAS_ESTATISTICAS].describe().T
+
+        dados_descritivos = dados_descritivos[
+            ["count", "mean", "50%", "std", "min", "max"]
+        ].rename(
+            columns={"count": "Quantidade", "mean": "Média", "50%": "Mediana", "std": "Desvio padrão", "min": "Mínimo", "max": "Máximo"}
+        )
+        st.dataframe(dados_descritivos.round(2), width="stretch")
 
         col_s1, col_s2 = st.columns(2)
         with col_s1:
@@ -247,7 +276,7 @@ with tab2:
             st.subheader("Média de Faltas Cometidas por Equipe")
             fig_faltas = px.bar(
                 df_agrupado_stats.sort_values("faltas", ascending=False).head(10),
-                x="clube", y="faltas", color="clube", title="Top 10 - Mais Faltosas / Jogo"
+                x="clube", y="faltas", color="clube", title="Top 10 - Média de Faltas por Jogo"
             )
             st.plotly_chart(fig_faltas, width="stretch")
     else:
@@ -300,8 +329,40 @@ with tab2:
     else:
         st.info("Não há partidas com posse de bola registrada para os filtros selecionados.")
 
+    st.markdown("---")
+    st.subheader("Matriz de Correlação")
+
+    dados_correlacao = f_stats_validos[COLUNAS_ESTATISTICAS].copy()
+
+    for coluna in COLUNAS_ESTATISTICAS:
+        dados_correlacao[coluna] = pd.to_numeric(dados_correlacao[coluna], errors="coerce")
+
+    dados_correlacao = dados_correlacao.dropna()
+    matriz_correlacao = dados_correlacao.corr()
+
+    fig_correlacao = px.imshow(
+        matriz_correlacao,
+        text_auto=".2f",
+        aspect="auto",
+        labels={
+            "x": "Estatística",
+            "y": "Estatística",
+            "color": "Correlação"
+        },
+        title="Correlação entre as Estatísticas das Equipes"
+    )
+
+    st.plotly_chart(fig_correlacao, width="stretch")
+
+    st.caption(
+        "Valores próximos de 1 indicam associação linear positiva; "
+        "valores próximos de -1 indicam associação linear negativa; "
+        "valores próximos de 0 indicam pouca associação linear. "
+        "Correlação não implica causalidade."
+    )
+
 with tab3:
-    st.subheader("Top Artilheiros")
+    st.subheader("Jogadores com Maior Número de Gols")
     if opcao_clube != "Todos":
         st.caption("Artilharia e gols por minuto: gols atribuídos ao clube selecionado.")
     if not f_gols.empty:
@@ -315,7 +376,7 @@ with tab3:
         with col_a2:
             fig_artilharia = px.bar(
                 artilharia.head(10), x="Gols", y="Jogador", orientation="h",
-                title="Top 10 Marcadores", color="Gols", color_continuous_scale="Viridis"
+                title="10 Jogadores com Maior Número de Gols", color="Gols", color_continuous_scale="Viridis"
             )
             fig_artilharia.update_layout(yaxis=dict(autorange="reversed"))
             st.plotly_chart(fig_artilharia, width="stretch")
@@ -436,7 +497,7 @@ with tab4:
             st.plotly_chart(fig_pos, width="stretch")
 
         with col_tipo_c:
-            st.subheader("Média de Cartões Amarelos por Clube")
+            st.subheader("Amarelos por participação em partida")
             participacoes = pd.concat([f_full["mandante"], f_full["visitante"]]).value_counts()
             amarelos_clube = f_cartoes.loc[f_cartoes["cartao"] == "Amarelo", "clube"].value_counts()
             media_amarelos = (
@@ -445,21 +506,21 @@ with tab4:
                 .sort_values(ascending=False)
                 .head(10)
                 .rename_axis("Clube")
-                .reset_index(name="Amarelos por partida")
+                .reset_index(name="Amarelos por participação em partida")
             )
             fig_media_amarelos = px.bar(
                 media_amarelos,
-                x="Amarelos por partida",
+                x="Amarelos por participação em partida",
                 y="Clube",
                 orientation="h",
                 color="Clube",
                 color_discrete_sequence=px.colors.qualitative.Bold,
-                text="Amarelos por partida",
+                text="Amarelos por participação em partida",
             )
             fig_media_amarelos.update_traces(texttemplate="%{x:.2f}", textposition="outside", cliponaxis=False)
             fig_media_amarelos.update_layout(
                 yaxis=dict(title=None, categoryorder="array", categoryarray=media_amarelos["Clube"].tolist()[::-1]),
-                xaxis=dict(range=[0, max(media_amarelos["Amarelos por partida"].max() * 1.16, 1)]),
+                xaxis=dict(range=[0, max(media_amarelos["Amarelos por participação em partida"].max() * 1.16, 1)]),
                 showlegend=False,
             )
             st.plotly_chart(fig_media_amarelos, width="stretch")
@@ -522,26 +583,3 @@ with tab4:
     )
     grafico_vermelhos.update_layout(yaxis_range=[0, 100])
     st.plotly_chart(grafico_vermelhos, width="stretch")
-
-with tab5:
-    st.subheader("🏟️ Principais Estádios e Técnicos")
-    col_e1, col_e2 = st.columns(2)
-
-    with col_e1:
-        st.subheader("Estádios com Mais Jogos")
-        estadios = f_full["arena"].value_counts().head(10).reset_index()
-        estadios.columns = ["Estádio / Arena", "Jogos"]
-        fig_estadios = px.bar(estadios, x="Jogos", y="Estádio / Arena", orientation="h", color="Jogos",
-                              color_continuous_scale="Blues")
-        fig_estadios.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig_estadios, width="stretch")
-
-    with col_e2:
-        st.subheader("Técnicos com Mais Jogos")
-        tecnicos = pd.concat([f_full["tecnico_mandante"], f_full["tecnico_visitante"]]).value_counts().head(
-            10).reset_index()
-        tecnicos.columns = ["Técnico", "Jogos"]
-        fig_tecnicos = px.bar(tecnicos, x="Jogos", y="Técnico", orientation="h", color="Jogos",
-                              color_continuous_scale="Greens")
-        fig_tecnicos.update_layout(yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fig_tecnicos, width="stretch")
