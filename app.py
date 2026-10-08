@@ -372,11 +372,36 @@ with tab2:
     st.markdown("---")
 
     st.subheader("Matriz de Correlação")
-    dados_correlacao = f_stats_validos[COLUNAS_ESTATISTICAS].copy()
-    for coluna in COLUNAS_ESTATISTICAS:
-        dados_correlacao[coluna] = pd.to_numeric(dados_correlacao[coluna], errors="coerce")
+    gols_equipes = pd.concat([
+        f_full[["ID", "mandante", "mandante_Placar"]].rename(
+            columns={
+                "ID": "partida_id",
+                "mandante": "clube",
+                "mandante_Placar": "gols"
+            }
+        ),
+        f_full[["ID", "visitante", "visitante_Placar"]].rename(
+            columns={
+                "ID": "partida_id",
+                "visitante": "clube",
+                "visitante_Placar": "gols"
+            }
+        )
+    ], ignore_index=True)
+    dados_correlacao = f_stats_validos[
+        ["partida_id", "clube"] + COLUNAS_ESTATISTICAS
+        ].merge(
+        gols_equipes,
+        on=["partida_id", "clube"],
+        how="inner"
+    )
+    colunas_correlacao = COLUNAS_ESTATISTICAS + ["gols"]
+    dados_correlacao[colunas_correlacao] = (
+        dados_correlacao[colunas_correlacao]
+        .apply(pd.to_numeric, errors="coerce")
+    )
     dados_correlacao = dados_correlacao.dropna()
-    matriz_correlacao = dados_correlacao.corr()
+    matriz_correlacao = dados_correlacao[colunas_correlacao].corr()
     fig_correlacao = px.imshow(
         matriz_correlacao,
         text_auto=".2f",
