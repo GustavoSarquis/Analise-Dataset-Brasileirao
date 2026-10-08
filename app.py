@@ -136,6 +136,54 @@ with tab1:
     c4.metric(rotulo_cartoes, f"{total_cartoes:,}" if cartoes_disponiveis else "Sem registros")
 
     st.markdown("---")
+
+    st.subheader("Distribuição de gols por partida")
+    jogos_gols = f_full[["ID", "mandante", "visitante", "mandante_Placar", "visitante_Placar"]].copy()
+    if opcao_clube == "Todos":
+        jogos_gols["Gols analisados"] = (
+                jogos_gols["mandante_Placar"] +
+                jogos_gols["visitante_Placar"]
+        )
+        titulo_grafico = "Distribuição de gols totais por partida"
+        rotulo_gols = "Gols totais por partida"
+
+    else:
+        jogos_gols["Gols analisados"] = jogos_gols.apply(
+            lambda linha: (
+                linha["mandante_Placar"]
+                if linha["mandante"] == opcao_clube
+                else linha["visitante_Placar"]
+            ),
+            axis=1
+        )
+        titulo_grafico = "Distribuição de gols do clube por partida"
+        rotulo_gols = "Gols do clube por partida"
+
+    media_gols = jogos_gols["Gols analisados"].mean()
+    mediana_gols = jogos_gols["Gols analisados"].median()
+    desvio_gols = jogos_gols["Gols analisados"].std()
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Média", f"{media_gols:.2f}")
+    col2.metric("Mediana", f"{mediana_gols:.2f}")
+    col3.metric("Desvio padrão", f"{desvio_gols:.2f}")
+
+    fig_distribuicao_gols = px.histogram(
+        jogos_gols,
+        x="Gols analisados",
+        nbins=10,
+        title=titulo_grafico,
+        labels={
+            "Gols analisados": rotulo_gols,
+            "count": "Quantidade de partidas"
+        }
+    )
+    fig_distribuicao_gols.update_xaxes(dtick=1)
+    st.plotly_chart(fig_distribuicao_gols, use_container_width=True)
+
+    st.markdown("---")
+
     col_g1, col_g2 = st.columns(2)
     with col_g1:
         titulo_distribuicao = (
@@ -164,6 +212,7 @@ with tab1:
         st.plotly_chart(fig_res, width="stretch")
 
     st.markdown("---")
+
     st.subheader("Evolução por Temporada")
     serie_temporadas = df_full.copy() if opcao_temporada == "Todas" else f_full.copy()
     if opcao_clube != "Todos":
@@ -186,7 +235,9 @@ with tab1:
     )
     grafico_evolucao.update_xaxes(type="category")
     st.plotly_chart(grafico_evolucao, width="stretch")
+
     st.markdown("---")
+
     st.subheader("Vitórias por Clube: Casa e Fora")
     mando_selecionado = st.radio(
         "Local da partida", ["Em casa", "Fora de casa"], horizontal=True,
@@ -228,19 +279,6 @@ with tab1:
     else:
         st.info("Não há partidas para o local e os filtros selecionados.")
 
-    st.subheader("Lista de Partidas")
-    st.dataframe(
-        f_full.assign(
-            vencedor=lambda jogos: jogos["vencedor"].where(
-                jogos["mandante_Placar"] != jogos["visitante_Placar"], "Empate"
-            )
-        )[["temporada", "data", "rodata", "mandante", "mandante_Placar", "visitante_Placar", "visitante", "arena", "vencedor"]].rename(
-            columns={"temporada": "Temporada", "rodata": "Rodada", "mandante_Placar": "Placar M", "visitante_Placar": "Placar V", "vencedor": "Resultado"}
-        ),
-        hide_index=True,
-        width="stretch"
-    )
-
 with tab2:
     st.subheader("Desempenho Coletivo")
     f_stats[COLUNAS_ESTATISTICAS] = (f_stats[COLUNAS_ESTATISTICAS].apply(pd.to_numeric, errors="coerce").fillna(0))
@@ -248,20 +286,21 @@ with tab2:
 
     if not f_stats_validos.empty:
         df_agrupado_stats = f_stats_validos.groupby("clube")[COLUNAS_ESTATISTICAS].mean().reset_index()
-
         st.write("Média por jogo de cada equipe no período selecionado:")
         st.dataframe(df_agrupado_stats.round(2), width="stretch")
+
         st.markdown("---")
+
         st.subheader("Estatísticas Descritivas")
-
         dados_descritivos = f_stats_validos[COLUNAS_ESTATISTICAS].describe().T
-
         dados_descritivos = dados_descritivos[
             ["count", "mean", "50%", "std", "min", "max"]
         ].rename(
             columns={"count": "Quantidade", "mean": "Média", "50%": "Mediana", "std": "Desvio padrão", "min": "Mínimo", "max": "Máximo"}
         )
         st.dataframe(dados_descritivos.round(2), width="stretch")
+
+        st.markdown("---")
 
         col_s1, col_s2 = st.columns(2)
         with col_s1:
@@ -284,6 +323,7 @@ with tab2:
             "⚠️ Não existem estatísticas detalhadas (chutes, faltas, etc.) registradas para o ano/clube selecionado no dataset.")
 
     st.markdown("---")
+
     st.subheader("Posse de Bola do Mandante e Resultado da Partida")
     partidas_posse = f_full[["ID", "mandante", "visitante", "mandante_Placar", "visitante_Placar"]].copy()
     posse_mandantes = f_stats_partidas[["partida_id", "clube", "posse_de_bola"]].copy()
@@ -330,16 +370,13 @@ with tab2:
         st.info("Não há partidas com posse de bola registrada para os filtros selecionados.")
 
     st.markdown("---")
+
     st.subheader("Matriz de Correlação")
-
     dados_correlacao = f_stats_validos[COLUNAS_ESTATISTICAS].copy()
-
     for coluna in COLUNAS_ESTATISTICAS:
         dados_correlacao[coluna] = pd.to_numeric(dados_correlacao[coluna], errors="coerce")
-
     dados_correlacao = dados_correlacao.dropna()
     matriz_correlacao = dados_correlacao.corr()
-
     fig_correlacao = px.imshow(
         matriz_correlacao,
         text_auto=".2f",
@@ -351,9 +388,7 @@ with tab2:
         },
         title="Correlação entre as Estatísticas das Equipes"
     )
-
     st.plotly_chart(fig_correlacao, width="stretch")
-
     st.caption(
         "Valores próximos de 1 indicam associação linear positiva; "
         "valores próximos de -1 indicam associação linear negativa; "
@@ -420,46 +455,24 @@ with tab3:
         else:
             st.info("Não há gols com minuto válido para os filtros selecionados.")
 
-        col_g_tipo, col_g_tempo = st.columns(2)
-        with col_g_tipo:
-            st.subheader("Tipos de Gols")
-            tipos_gol = f_gols["tipo_de_gol"].value_counts().reset_index()
-            tipos_gol.columns = ["Tipo", "Quantidade"]
-            fig_tipo_gol = px.pie(tipos_gol, names="Tipo", values="Quantidade", hole=0.3)
-            st.plotly_chart(fig_tipo_gol, width="stretch")
+    st.markdown("---")
 
-        with col_g_tempo:
-            st.subheader("Gols por Tempo de Jogo")
-            if not gols_minutos.empty:
-                tempos = (
-                    gols_minutos["minuto_base"].le(45)
-                    .map({True: "1º tempo", False: "2º tempo"})
-                    .value_counts()
-                    .reindex(["1º tempo", "2º tempo"], fill_value=0)
-                    .rename_axis("Tempo").reset_index(name="Gols")
-                )
-                tempos["Percentual"] = tempos["Gols"] / len(gols_minutos) * 100
-                fig_tempos = px.bar(
-                    tempos, x="Tempo", y="Percentual", color="Tempo",
-                    text="Percentual", custom_data=["Gols"],
-                    color_discrete_sequence=px.colors.qualitative.Plotly,
-                    labels={"Percentual": "Gols (%)"}
-                )
-                fig_tempos.update_traces(
-                    texttemplate="%{y:.1f}%", textposition="outside",
-                    hovertemplate="%{x}<br>Gols: %{customdata[0]}<br>Participação: %{y:.2f}%<extra></extra>"
-                )
-                fig_tempos.update_layout(showlegend=False, yaxis_range=[0, 100])
-                st.plotly_chart(fig_tempos, width="stretch")
-            else:
-                st.info("Não há gols com minuto válido para os filtros selecionados.")
+    st.subheader("Tipos de Gols")
+    tipos_gol = f_gols["tipo_de_gol"].value_counts().reset_index()
+    tipos_gol.columns = ["Tipo", "Quantidade"]
+    fig_tipo_gol = px.pie(tipos_gol, names="Tipo", values="Quantidade", hole=0.3)
+    st.plotly_chart(fig_tipo_gol, width="stretch")
 
     st.markdown("---")
+
     st.subheader("Distribuição de Gols por Partida e Valores Extremos")
     jogos_gols = f_full.copy()
     jogos_gols["Gols na partida"] = jogos_gols["mandante_Placar"] + jogos_gols["visitante_Placar"]
     fig_box_gols = px.box(jogos_gols, y="Gols na partida", points="outliers", title="Distribuição de gols por partida")
     st.plotly_chart(fig_box_gols, width="stretch")
+
+    st.markdown("---")
+
     st.subheader("Partidas com Mais Gols")
     jogos_extremos = jogos_gols.sort_values("Gols na partida", ascending=False).head(10).copy()
     jogos_extremos["Placar"] = jogos_extremos["mandante_Placar"].astype(str) + " × " + jogos_extremos["visitante_Placar"].astype(str)
@@ -487,8 +500,8 @@ with tab4:
             st.dataframe(vermelhos.head(10), width="stretch")
 
         st.markdown("---")
-        col_pos, col_tipo_c = st.columns(2)
 
+        col_pos, col_tipo_c = st.columns(2)
         with col_pos:
             st.subheader("Cartões por Posição")
             cartoes_pos = f_cartoes["posicao"].value_counts().reset_index()
@@ -528,6 +541,7 @@ with tab4:
         st.info("Sem dados de cartões para os filtros selecionados.")
 
     st.markdown("---")
+
     st.subheader("Expulsões nas Partidas Selecionadas e Resultados")
     partidas_cartoes = f_full[["ID", "mandante", "visitante", "mandante_Placar", "visitante_Placar"]].copy()
     cartoes_vermelhos = f_cartoes_partidas[f_cartoes_partidas["cartao"] == "Vermelho"].copy()
